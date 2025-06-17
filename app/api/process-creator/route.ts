@@ -336,7 +336,30 @@ export async function POST(req: Request) {
               viewCount: viewCount,
               likeCount: likeCount
             };
-        }).filter((video: any) => video.video_url); // Only include videos with valid URLs
+        }).filter((video: any) => {
+          // Only include videos with valid URLs that look like actual video URLs
+          if (!video.video_url) return false;
+          
+          // Basic URL validation
+          try {
+            const url = new URL(video.video_url);
+            // Check if URL looks like a TikTok video URL
+            const isValidTikTokUrl = url.hostname.includes('tiktokcdn') || 
+                                   url.hostname.includes('tiktok') ||
+                                   url.pathname.includes('.mp4') ||
+                                   url.searchParams.has('mime_type');
+            
+            if (!isValidTikTokUrl) {
+              console.warn(`Filtering out invalid TikTok URL: ${video.video_url.substring(0, 100)}...`);
+              return false;
+            }
+            
+            return true;
+          } catch (urlError) {
+            console.warn(`Filtering out malformed URL: ${video.video_url.substring(0, 100)}...`);
+            return false;
+          }
+        });
         
         // Add to our collection, but don't exceed the target collection count
         const remainingSlots = targetCollectionCount - allExtractedVideos.length;
@@ -493,7 +516,30 @@ export async function POST(req: Request) {
               likeCount: likeCount
             };
           });
-        }).flat().filter((video: any) => video.is_video && video.video_url); // Only include videos with valid URLs
+        }).flat().filter((video: any) => {
+          // Only include videos with valid URLs that look like actual video URLs
+          if (!video.is_video || !video.video_url) return false;
+          
+          // Basic URL validation for Instagram
+          try {
+            const url = new URL(video.video_url);
+            // Check if URL looks like an Instagram video URL
+            const isValidInstagramUrl = url.hostname.includes('cdninstagram') || 
+                                      url.hostname.includes('instagram') ||
+                                      url.hostname.includes('fbcdn') ||
+                                      url.pathname.includes('.mp4');
+            
+            if (!isValidInstagramUrl) {
+              console.warn(`Filtering out invalid Instagram URL: ${video.video_url.substring(0, 100)}...`);
+              return false;
+            }
+            
+            return true;
+          } catch (urlError) {
+            console.warn(`Filtering out malformed Instagram URL: ${video.video_url.substring(0, 100)}...`);
+            return false;
+          }
+        });
         
         // Add to our collection, but don't exceed the target collection count
         const remainingSlots = targetCollectionCount - allExtractedVideos.length;

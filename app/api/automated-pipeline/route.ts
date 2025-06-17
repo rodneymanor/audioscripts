@@ -120,6 +120,20 @@ export async function POST(req: NextRequest) {
     );
 
     console.log(`[AutomatedPipeline] Successfully analyzed ${successfulTranscriptions.length} videos`);
+    
+    // Log success rate for debugging
+    const totalAttempted = transcriptionResult.data.transcriptionResults.length;
+    const successRate = Math.round((successfulTranscriptions.length / totalAttempted) * 100);
+    console.log(`[AutomatedPipeline] Transcription success rate: ${successRate}% (${successfulTranscriptions.length}/${totalAttempted})`);
+    
+    // Continue even if success rate is low, but warn if too low
+    if (successfulTranscriptions.length === 0) {
+      throw new Error('No videos were successfully transcribed and analyzed');
+    }
+    
+    if (successRate < 50) {
+      console.warn(`[AutomatedPipeline] Low success rate (${successRate}%) - many videos may have expired URLs or parsing issues`);
+    }
 
     // Step 3: Generate Templates (if we have marketing analysis)
     let templates: any[] = [];

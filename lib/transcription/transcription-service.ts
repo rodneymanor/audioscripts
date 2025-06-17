@@ -328,6 +328,7 @@ export class TranscriptionService {
       
       if (jsonString) {
         try {
+          // First try to parse the complete JSON
           const parsed = JSON.parse(jsonString);
           console.log('[TranscriptionService] Successfully parsed JSON');
           
@@ -337,7 +338,7 @@ export class TranscriptionService {
               marketingSegments: parsed.marketingSegments
             };
 
-            // Include word assignments if present
+            // Include word assignments if present and valid
             if (parsed.wordAssignments && Array.isArray(parsed.wordAssignments)) {
               result.wordAssignments = parsed.wordAssignments;
               
@@ -362,6 +363,27 @@ export class TranscriptionService {
           }
         } catch (parseError) {
           console.error('[TranscriptionService] JSON parsing failed:', parseError);
+          console.log('[TranscriptionService] Attempting to parse without word assignments');
+          
+          // Try to parse just the core data without word assignments
+          try {
+            // Extract just the core sections without word assignments
+            const coreJsonMatch = jsonString.match(/\{[^}]*"transcription"\s*:\s*"[^"]*"[^}]*"marketingSegments"\s*:\s*\{[^}]*\}[^}]*\}/s);
+            if (coreJsonMatch) {
+              const coreJson = coreJsonMatch[0];
+              const coreParsed = JSON.parse(coreJson);
+              
+              if (coreParsed.transcription && coreParsed.marketingSegments) {
+                console.log('[TranscriptionService] Successfully parsed core JSON without word assignments');
+                return {
+                  transcription: coreParsed.transcription,
+                  marketingSegments: coreParsed.marketingSegments
+                };
+              }
+            }
+          } catch (coreParseError) {
+            console.error('[TranscriptionService] Core JSON parsing also failed:', coreParseError);
+          }
         }
       }
       

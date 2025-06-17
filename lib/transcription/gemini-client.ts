@@ -248,6 +248,8 @@ DO NOT include:
 
 Your first character must be { and your last character must be }
 
+IMPORTANT: For reliability, SKIP the wordAssignments array. Only provide transcription and marketingSegments.
+
 Expected JSON format:
 {
   "transcription": "The complete, accurate transcription of the video audio",
@@ -256,12 +258,7 @@ Expected JSON format:
     "Bridge": "All words assigned to Bridge category in original order", 
     "Golden Nugget": "All words assigned to Golden Nugget category in original order",
     "WTA": "All words assigned to WTA category in original order"
-  },
-  "wordAssignments": [
-    {"word": "first_word", "category": "Hook", "position": 1},
-    {"word": "second_word", "category": "Hook", "position": 2},
-    {"word": "third_word", "category": "Bridge", "position": 3}
-  ]
+  }
 }
 
 PRECISE CATEGORY DEFINITIONS:

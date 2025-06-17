@@ -22,15 +22,35 @@ export async function createFolder(name: string, parentFolderId?: string) {
   console.log(`Creating Google Drive folder: ${name}`);
   
   try {
+    // First try with parent folder if provided
+    if (parentFolderId) {
+      try {
+        const response = await drive.files.create({
+          requestBody: {
+            name,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [parentFolderId],
+          },
+        });
+
+        console.log(`Folder created successfully with parent: ${response.data.id}`);
+        return response.data;
+      } catch (parentError: any) {
+        console.warn(`Failed to create folder with parent ${parentFolderId}, trying root folder:`, parentError.message);
+        // Fall through to create in root
+      }
+    }
+
+    // Create in root folder if parent fails or not provided
     const response = await drive.files.create({
       requestBody: {
         name,
         mimeType: 'application/vnd.google-apps.folder',
-        parents: parentFolderId ? [parentFolderId] : undefined,
+        // No parents specified = root folder
       },
     });
 
-    console.log(`Folder created successfully: ${response.data.id}`);
+    console.log(`Folder created successfully in root: ${response.data.id}`);
     return response.data;
   } catch (error: any) {
     console.error('Error creating folder:', error);

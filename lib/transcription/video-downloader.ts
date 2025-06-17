@@ -35,21 +35,32 @@ export class VideoDownloader {
     
     try {
       console.log(`[VideoDownloader] Starting download for ${metadata.platform} video: ${metadata.id}`);
+      console.log(`[VideoDownloader] Video URL: ${metadata.url.substring(0, 100)}...`);
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
 
+      // Try multiple user agents and headers for better compatibility
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'video/mp4,video/*,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'identity', // Don't compress video
+        'Cache-Control': 'no-cache',
+        'Referer': metadata.platform === 'tiktok' ? 'https://www.tiktok.com/' : 'https://www.instagram.com/'
+      };
+
       const response = await fetch(metadata.url, {
         signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+        headers,
+        method: 'GET'
       });
 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        console.error(`[VideoDownloader] HTTP error for ${metadata.id}: ${response.status} ${response.statusText}`);
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - URL may be expired or invalid`);
       }
 
       const contentLength = response.headers.get('content-length');
