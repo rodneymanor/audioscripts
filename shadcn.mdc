@@ -1,0 +1,73 @@
+Project Goal: To successfully reimagine the Perplexity AI interface using ShadCN/UI and Tailwind CSS, focusing on modern aesthetics, enhanced UX, accessibility, maintainability, and adherence to the established redesign blueprint.
+
+Last Updated: December 26, 2024
+
+I. Core Philosophy & Guiding Principles
+ShadCN/UI First:
+Rule: Prioritize using existing ShadCN/UI components for all applicable UI elements.
+Check: Before building a custom component, have we exhaustively checked if a ShadCN component (or a composition of them) can fulfill the requirement?
+Tailwind CSS for All Styling:
+Rule: All styling must be implemented using Tailwind CSS utility classes. Avoid custom CSS files for component-specific styles unless absolutely unavoidable and documented (e.g., for complex animations not covered by Tailwind).
+Check: Is this style achievable with Tailwind utilities? If not, is there a strong justification for custom CSS?
+Adherence to Design System:
+Rule: Strictly follow the defined color palette (CSS custom properties), typography scale, and spacing system outlined in the "Detailed Implementation Blueprint."
+Check: Does this implementation use the approved --primary, --background, text utilities, and spacing units?
+Borderless/Floating Content Design System:
+Rule: Prioritize spatial separation over visual borders. Avoid visible borders, card containers with stroke outlines, line separators, and heavy visual frames.
+Core Principles:
+- Use generous margins/padding instead of borders (24px minimum padding, 32px+ section breaks)
+- Employ subtle background differentiation (rgba opacity 0.02-0.08) to define areas
+- Create elevation through very subtle shadows (0-3px blur, low opacity)
+- Build hierarchy through typography and spacing, not visual boundaries
+- Default to borderless design - only add borders when functionally necessary
+Check: Does this component rely on borders for visual separation? Can we achieve the same hierarchy through spacing, backgrounds, or typography?
+When Borders ARE Appropriate: Form input fields (functional), critical alerts/warnings (attention), data tables (structural), image containers (content definition)
+Layout Patterns to Use: Floating cards with subtle shadows, generous whitespace (48px+), grouped content through background shifts, typography hierarchy
+Avoid: Outlined cards everywhere, border-heavy form fields, line separators between list items, heavy visual containers
+Interactive States: Use background changes and subtle transforms on hover, avoid adding borders
+Modern Reference: Figma, Linear, Notion, Stripe Dashboard, GitHub's new UI - elegant minimalism where content hierarchy emerges from thoughtful spacing and typography
+Accessibility is Non-Negotiable:
+Rule: All components and interactions must meet WCAG 2.1 AA standards. Leverage ShadCN's built-in accessibility features.
+Check: Is this component keyboard navigable? Does it have appropriate ARIA labels and roles? Are focus states clear and visible? Is color contrast sufficient?
+Mobile-First & Responsive:
+Rule: Design and implement for mobile screens first, then scale up to desktop. Ensure a seamless experience across all common breakpoints.
+Check: How does this look and function on small screens? Are touch targets adequate? Does it reflow gracefully?
+II. Component Implementation & Usage
+Component Sourcing & Customization:
+Rule: Use the official ShadCN/UI CLI (npx shadcn@latest add ...) to add components to the project. Customize components only through props and by composing them with Tailwind CSS. Avoid directly modifying the base code of components/ui/ files unless for project-wide theme adjustments approved by the team.
+Check: Was this component added via the CLI? Are customizations done via props and Tailwind utilities applied in the implementation file, not the base UI file?
+Component Composition:
+Rule: Favor composing simpler ShadCN components to create more complex UI sections, rather than building monolithic custom components.
+Check: Can this complex UI be broken down into smaller, reusable ShadCN-based components?
+State Management:
+Rule: Use local React state (useState, useReducer) for component-level state. For shared/global state, use the agreed-upon solution (e.g., Zustand, Context API) and ensure it's implemented consistently.
+Check: Is the state management approach appropriate for the scope of this component/feature? Is it overly complex or not scalable enough?
+III. Styling & Theming
+CSS Custom Properties for Theming:
+Rule: All theme-related colors (backgrounds, text, primary/secondary accents, borders, etc.) must be defined and used via the CSS custom properties in globals.css (or theme.css).
+Check: Is this color hardcoded, or is it using a hsl(var(--...)) variable?
+Dark Mode Consistency:
+Rule: Ensure every component and view is correctly styled for both light and dark modes, utilizing the variables defined for the .dark theme.
+Check: Has this component been tested thoroughly in both light and dark modes? Are there any visual regressions or unstyled elements?
+IV. Development Process & Code Quality
+Code Structure & Organization:
+Rule: Adhere to the agreed-upon folder structure (e.g., /components/ui, /components/layout, /components/features, /app). Keep components small and focused on a single responsibility.
+Check: Is this file/component in the correct directory? Is this component doing too many things?
+Rule: **App Router for Pages:** All new page components that define application routes MUST be created within the `src/app` directory, using a `page.jsx` or `page.tsx` file within a folder structure that defines the route segments (e.g., `src/app/dashboard/page.jsx` for the `/dashboard` route). Avoid using the `src/pages` directory for new route definitions to ensure consistency with the Next.js App Router.
+Check: Is this new page/route being defined within `src/app` using the `page.jsx/tsx` convention? Or is it incorrectly placed in `src/pages`?
+TypeScript & Props:
+Rule: Utilize TypeScript for all components. Define clear and specific Props interfaces for each custom component.
+Check: Are all props typed correctly? Are types specific and meaningful?
+Naming Conventions:
+Rule: Follow consistent naming conventions for files, components, variables, and Tailwind classes (if abstracting). (e.g., PascalCase for components, camelCase for variables/functions).
+Check: Does the naming align with project standards?
+V. Review & "Stay on Plan" Checkpoints
+Deviation Protocol:
+Rule: Any proposed deviation from the ShadCN/UI plan or this Cursor Rules Document must be discussed with the project lead/team and formally approved before implementation. Document the rationale for any approved deviation.
+Check (during PRs/Reviews): Does this implementation align with the original plan and these rules? If not, was a deviation discussed and approved?
+Regular Design & Component Review:
+Rule: Conduct regular (e.g., weekly, bi-weekly) brief reviews of newly implemented UI sections against the original design mockups (if any) and the ShadCN philosophy.
+Check: Does the live implementation visually and functionally match the intended ShadCN-based design? Are we over-customizing or drifting from the ShadCN aesthetic?
+"Is this ShadCN-idiomatic?" Test:
+Rule: For any new UI pattern or complex component, ask: "Is this the way it would typically be built or composed using ShadCN components and Tailwind CSS?" Refer to ShadCN documentation and examples.
+Check: Does this feel like a natural extension of the ShadCN ecosystem, or are we fighting the framework?

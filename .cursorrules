@@ -1,0 +1,82 @@
+# AudioScripts Project Intelligence
+
+## Project Patterns & Preferences
+
+### Development Philosophy
+- **Iterative Development**: User strongly prefers building in phases and testing incrementally
+- **Comprehensive Logging**: Extensive console logging for debugging is valued and expected
+- **Real-time Feedback**: UI must provide progressive status updates during long operations
+- **Error Transparency**: Show detailed error messages to users, not just generic failures
+- **URL Visibility**: Always display extracted URLs in both console and UI for verification
+
+### Technical Preferences
+
+#### API Integration Patterns
+- **Single Endpoint Strategy**: Prefer one API route handling multiple platforms vs separate routes
+- **Platform-Specific Branching**: Use conditional logic within single functions rather than separate handlers
+- **Fallback URL Sources**: Always implement multiple URL extraction methods for reliability
+- **Rate Limiting**: Implement both client-side and server-side rate limiting for API protection
+
+#### Error Handling Approach
+- **Graceful Degradation**: Process should continue even if non-critical steps fail (e.g., Google Drive upload)
+- **Detailed Logging**: Log complete API responses as JSON for debugging
+- **User-Friendly Messages**: Translate technical errors into actionable user guidance
+- **Request Timing**: Track and log API request durations for performance monitoring
+
+#### Data Processing Patterns
+- **Smallest File Selection**: Always prioritize smallest video files for transcription efficiency
+- **Metadata Preservation**: Save complete API response data alongside processed results
+- **Quality Tracking**: Record video dimensions, bitrates, and other quality metrics
+- **Content Filtering**: Only process actual video content, skip images and other media types
+
+### UI/UX Principles
+- **Progressive Disclosure**: Show status updates step-by-step during processing
+- **Copy Functionality**: Provide copy-to-clipboard for all URLs and important data
+- **Visual Feedback**: Use icons and colors to indicate success/failure states
+- **Request Control**: Always allow users to cancel ongoing requests
+- **Comprehensive Display**: Show individual video cards with all relevant metadata
+
+### Google Drive Integration
+- **Timestamped Folders**: Create folders with descriptive names and timestamps
+- **JSON Metadata**: Store complete extraction data as JSON files alongside content
+- **Service Account**: Use service account authentication for automated access
+- **Folder Organization**: Maintain clean, hierarchical folder structure
+
+## Critical Implementation Paths
+
+### Instagram API Handling
+- **Case Sensitivity Issue**: Instagram API returns `UserID` not `user_id` - always check both
+- **Two-Step Process**: Must get user_id first, then use it to get posts
+- **Rate Limiting**: Add 1-second delay between Instagram API calls to avoid per-second limits
+- **Media Type Filtering**: Only process items where `media_type === 2` (videos)
+
+### TikTok API Handling
+- **Direct Processing**: TikTok API returns feed directly in `aweme_list`
+- **URL Extraction**: Check both `play_addr` and `download_addr` for video URLs
+- **Bitrate Selection**: Find smallest bitrate in `bit_rate` array for efficiency
+
+### Common Pitfalls to Avoid
+- **Variable Redeclaration**: Don't declare timing variables multiple times in same scope
+- **API Response Assumptions**: Always validate API response structure before accessing properties
+- **Error Swallowing**: Never catch errors without logging or user feedback
+- **Rate Limit Ignorance**: Always implement delays for APIs with per-second limits
+
+## User Workflow Patterns
+- **Start Simple**: Begin with basic functionality, then enhance incrementally
+- **Test Thoroughly**: Validate each phase before moving to next
+- **Document Changes**: Keep detailed records of what was implemented and why
+- **Plan Ahead**: Discuss next phases but focus on current implementation
+
+## Project Evolution Notes
+- **Phase 1 Complete**: Content extraction and URL discovery fully functional
+- **Next Phase**: Actual video downloading and transcription processing
+- **Architecture**: Clean separation between UI, API routes, and utility functions
+- **Scalability**: Current design can handle additional platforms and features
+
+## Tool Usage Patterns
+- **RapidAPI**: Reliable for social media content access, handle rate limits carefully
+- **Google Drive API**: Excellent for automated storage, use service accounts for reliability
+- **Next.js App Router**: Clean API route structure, good for iterative development
+- **TypeScript**: Maintained throughout, helps catch API response structure issues
+
+This project demonstrates excellent practices for iterative development, comprehensive error handling, and user-focused design. The foundation is solid for building more advanced features. 
