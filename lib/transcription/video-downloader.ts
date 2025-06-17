@@ -13,8 +13,8 @@ export class VideoDownloadError extends Error {
 }
 
 export class VideoDownloader {
-  private static readonly MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-  private static readonly TIMEOUT_MS = 30000; // 30 seconds
+  private static readonly MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB (increased for TikTok videos)
+  private static readonly TIMEOUT_MS = 45000; // 45 seconds (increased timeout for larger files)
   private static readonly SUPPORTED_MIME_TYPES = [
     'video/mp4',
     'video/mpeg',

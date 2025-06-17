@@ -12,7 +12,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Play, CheckCircle2, AlertCircle, Download, FileText, Zap, Sparkles } from "lucide-react";
+import { 
+  Loader2, 
+  Play, 
+  CheckCircle2, 
+  AlertCircle, 
+  Download, 
+  FileText, 
+  Zap, 
+  Sparkles,
+  Copy,
+  ExternalLink,
+  Folder,
+  Video,
+  MessageSquare,
+  FileDown,
+  Database,
+  XCircle
+} from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Progress } from '@/components/ui/progress';
+import { useToast } from '@/hooks/use-toast';
 
 interface AutomatedPipelineRequest {
   username: string;
@@ -68,7 +90,19 @@ interface PipelineResult {
   error?: string;
 }
 
-export default function AutomatedPipeline() {
+interface PipelineStep {
+  step: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  message: string;
+  details?: any;
+  timestamp: string;
+}
+
+interface AutomatedPipelineProps {
+  onComplete?: (result: any) => void;
+}
+
+export function AutomatedPipeline({ onComplete }: AutomatedPipelineProps) {
   const [username, setUsername] = useState("");
   const [platform, setPlatform] = useState("tiktok");
   const [videoCount, setVideoCount] = useState(40);
@@ -78,175 +112,390 @@ export default function AutomatedPipeline() {
   const [exportFormat, setExportFormat] = useState<'jsonl' | 'json'>('jsonl');
   const [includeMetadata, setIncludeMetadata] = useState(true);
   
-  const [isRunning, setIsRunning] = useState(false);
-  const [currentStage, setCurrentStage] = useState<string>("");
-  const [progress, setProgress] = useState(0);
-  const [result, setResult] = useState<PipelineResult | null>(null);
-  const [statusMessage, setStatusMessage] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [steps, setSteps] = useState<PipelineStep[]>([]);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
   
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const { toast } = useToast();
 
-  const handleRunPipeline = async () => {
+  const getStepIcon = (status: PipelineStep['status']) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+      case 'failed':
+        return <AlertCircle className="h-5 w-5 text-red-500" />;
+      case 'running':
+        return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />;
+      default:
+        return <Play className="h-5 w-5 text-gray-400" />;
+    }
+  };
+
+  const getStepColor = (status: PipelineStep['status']) => {
+    switch (status) {
+      case 'completed':
+        return 'border-green-200 bg-green-50';
+      case 'failed':
+        return 'border-red-200 bg-red-50';
+      case 'running':
+        return 'border-blue-200 bg-blue-50';
+      default:
+        return 'border-gray-200 bg-gray-50';
+    }
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({
+        title: "Copied to clipboard",
+        description: "Text has been copied to your clipboard",
+      });
+    } catch (error) {
+      toast({
+        title: "Copy failed",
+        description: "Failed to copy text to clipboard",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const renderStepDetails = (step: PipelineStep) => {
+    if (!step.details) return null;
+
+    switch (step.step) {
+      case 'video_extraction':
+        if (step.details.videoUrls) {
+          return (
+            <div className="mt-3 space-y-2">
+              <h4 className="font-medium text-sm">Extracted Video URLs:</h4>
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {step.details.videoUrls.map((video: any) => (
+                  <div key={video.index} className="flex items-center gap-2 text-xs bg-white p-2 rounded border">
+                    <Video className="h-3 w-3" />
+                    <span className="font-mono">#{video.index}</span>
+                    <span className="text-gray-600">{video.platform}</span>
+                    <span className="text-gray-500">({video.viewCount} views)</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 ml-auto"
+                      onClick={() => copyToClipboard(video.url)}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        break;
+
+      case 'drive_storage':
+        if (step.details.folderName) {
+          return (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <Folder className="h-4 w-4 text-blue-500" />
+                <span className="font-medium">{step.details.folderName}</span>
+                {step.details.folderUrl && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2"
+                    onClick={() => window.open(step.details.folderUrl, '_blank')}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              {step.details.files && step.details.files.length > 0 && (
+                <div className="text-xs text-gray-600">
+                  Files: {step.details.files.map((file: any) => file.name).join(', ')}
+                </div>
+              )}
+            </div>
+          );
+        }
+        break;
+
+      case 'video_processing':
+        if (step.details.successful) {
+          return (
+            <div className="mt-3 space-y-3">
+              <div className="flex items-center gap-4">
+                <Badge variant="outline" className="text-green-600">
+                  Success Rate: {step.details.successRate}
+                </Badge>
+                <Badge variant="outline">
+                  Processing Time: {step.details.processingTime}
+                </Badge>
+              </div>
+              
+              {step.details.successful.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-sm mb-2">Successful Transcriptions:</h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {step.details.successful.map((result: any, index: number) => (
+                      <div key={index} className="bg-white p-3 rounded border">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MessageSquare className="h-4 w-4 text-green-500" />
+                          <span className="font-mono text-sm">{result.videoId}</span>
+                          <Badge variant="secondary" className="text-xs">{result.platform}</Badge>
+                          <span className="text-xs text-gray-500">{result.processingTime}</span>
+                        </div>
+                        <div className="text-xs text-gray-700 mb-2">
+                          <strong>Transcription:</strong> {result.transcription}
+                        </div>
+                        {result.marketingSegments && (
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <strong>Hook:</strong> {result.marketingSegments.Hook?.substring(0, 50)}...
+                            </div>
+                            <div>
+                              <strong>Bridge:</strong> {result.marketingSegments.Bridge?.substring(0, 50)}...
+                            </div>
+                            <div>
+                              <strong>Nugget:</strong> {result.marketingSegments.GoldenNugget?.substring(0, 50)}...
+                            </div>
+                            <div>
+                              <strong>CTA:</strong> {result.marketingSegments.WTA?.substring(0, 50)}...
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {step.details.failed && step.details.failed.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-sm mb-2 text-red-600">Failed Downloads:</h4>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {step.details.failed.map((failure: any, index: number) => (
+                      <div key={index} className="bg-red-50 p-2 rounded border border-red-200 text-xs">
+                        <div className="flex items-center gap-2">
+                          <XCircle className="h-3 w-3 text-red-500" />
+                          <span className="font-mono">{failure.videoId}</span>
+                          <span className="text-red-600">{failure.error}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+        break;
+
+      case 'template_generation':
+        if (step.details.templates) {
+          return (
+            <div className="mt-3 space-y-2">
+              <h4 className="font-medium text-sm">Generated Templates:</h4>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {step.details.templates.map((template: any) => (
+                  <div key={template.index} className="bg-white p-2 rounded border text-xs">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><strong>Hook:</strong> {template.hook}</div>
+                      <div><strong>Bridge:</strong> {template.bridge}</div>
+                      <div><strong>Nugget:</strong> {template.nugget}</div>
+                      <div><strong>CTA:</strong> {template.wta}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        break;
+
+      case 'synthetic_generation':
+        if (step.details.details) {
+          return (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-purple-500" />
+                <span className="font-medium text-sm">
+                  Generated {step.details.successfulSynthetic}/{step.details.totalAttempted} synthetic scripts
+                </span>
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {step.details.details.map((detail: any, index: number) => (
+                  <div key={index} className={`p-2 rounded border text-xs ${
+                    detail.status === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {detail.status === 'success' ? (
+                        <CheckCircle2 className="h-3 w-3 text-green-500" />
+                      ) : (
+                        <XCircle className="h-3 w-3 text-red-500" />
+                      )}
+                      <span className="font-medium">{detail.topic}</span>
+                    </div>
+                    {detail.hook && (
+                      <div className="mt-1 text-gray-700">
+                        <strong>Hook:</strong> {detail.hook}
+                      </div>
+                    )}
+                    {detail.error && (
+                      <div className="mt-1 text-red-600">
+                        <strong>Error:</strong> {detail.error}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        break;
+
+      case 'data_export':
+        if (step.details.totalExamples) {
+          return (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center gap-4">
+                <Badge variant="outline" className="text-blue-600">
+                  {step.details.totalExamples} Training Examples
+                </Badge>
+                <Badge variant="outline">
+                  Format: {step.details.format.toUpperCase()}
+                </Badge>
+              </div>
+              {step.details.downloadUrl && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(step.details.downloadUrl, '_blank')}
+                  className="mt-2"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download Training Data
+                </Button>
+              )}
+              {step.details.summary && (
+                <div className="text-xs text-gray-600 mt-2">
+                  <div>Original Scripts: {step.details.summary.originalScripts || 0}</div>
+                  <div>Synthetic Scripts: {step.details.summary.syntheticScripts || 0}</div>
+                  <div>Total Examples: {step.details.summary.totalExamples || 0}</div>
+                </div>
+              )}
+            </div>
+          );
+        }
+        break;
+    }
+
+    return null;
+  };
+
+  const startPipeline = async () => {
     if (!username.trim()) {
-      setStatusMessage("Please enter a username");
+      toast({
+        title: "Username required",
+        description: "Please enter a username to process",
+        variant: "destructive",
+      });
       return;
     }
 
-    setIsRunning(true);
+    setIsProcessing(true);
+    setSteps([]);
     setResult(null);
-    setProgress(0);
-    setCurrentStage("Initializing pipeline...");
-    setStatusMessage("");
-
-    // Create abort controller for cancellation
-    abortControllerRef.current = new AbortController();
+    setError(null);
 
     try {
-      const requestBody: AutomatedPipelineRequest = {
-        username: username.trim().replace('@', ''),
-        platform: platform as 'tiktok' | 'instagram',
-        videoCount,
-        options: {
-          fastMode,
-          generateSyntheticData,
-          syntheticScriptCount,
-          exportFormat,
-          includeMetadata
-        }
-      };
-
-      console.log('[AutomatedPipeline] Starting pipeline with config:', requestBody);
-
-      // Simulate progress updates (since we don't have real-time progress from the API)
-      const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          if (prev < 90) return prev + 2;
-          return prev;
-        });
-      }, 2000);
-
-      // Update stage messages periodically
-      const stageMessages = [
-        "Extracting top-performing videos...",
-        "Downloading and analyzing content...",
-        "Generating marketing templates...",
-        "Creating synthetic training data...",
-        "Preparing fine-tuning dataset..."
-      ];
-
-      let stageIndex = 0;
-      const stageInterval = setInterval(() => {
-        if (stageIndex < stageMessages.length) {
-          setCurrentStage(stageMessages[stageIndex]);
-          stageIndex++;
-        }
-      }, 15000); // Update stage every 15 seconds
-
-      const response = await fetch("/api/automated-pipeline", {
-        method: "POST",
+      const response = await fetch('/api/automated-pipeline', {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody),
-        signal: abortControllerRef.current.signal,
+        body: JSON.stringify({
+          username: username.trim(),
+          platform,
+          videoCount,
+          options: {
+            fastMode,
+            generateSyntheticData,
+            syntheticScriptCount,
+            exportFormat,
+            includeMetadata: true
+          }
+        }),
       });
 
-      clearInterval(progressInterval);
-      clearInterval(stageInterval);
+      const data = await response.json();
 
-      const pipelineResult: PipelineResult = await response.json();
-
-      if (!response.ok) {
-        throw new Error(pipelineResult.error || `HTTP error! status: ${response.status}`);
-      }
-
-      setProgress(100);
-      setCurrentStage("Pipeline completed successfully!");
-      setResult(pipelineResult);
-      setStatusMessage(pipelineResult.message || "Pipeline completed successfully");
-
-      console.log('[AutomatedPipeline] Pipeline completed:', pipelineResult);
-
-    } catch (error) {
-      console.error('[AutomatedPipeline] Pipeline failed:', error);
-      
-      if (error instanceof Error && error.name === 'AbortError') {
-        setStatusMessage("Pipeline cancelled by user");
-        setCurrentStage("Cancelled");
+      if (data.success) {
+        setSteps(data.steps || []);
+        setResult(data.data);
+        toast({
+          title: "Pipeline completed!",
+          description: data.message,
+        });
+        onComplete?.(data);
       } else {
-        setStatusMessage(error instanceof Error ? error.message : "Pipeline failed with unknown error");
-        setCurrentStage("Error occurred");
+        setSteps(data.steps || []);
+        setError(data.error);
+        toast({
+          title: "Pipeline failed",
+          description: data.error,
+          variant: "destructive",
+        });
       }
-      setProgress(0);
+    } catch (error) {
+      console.error('Pipeline error:', error);
+      setError(error instanceof Error ? error.message : 'Unknown error occurred');
+      toast({
+        title: "Pipeline error",
+        description: "An unexpected error occurred",
+        variant: "destructive",
+      });
     } finally {
-      setIsRunning(false);
-      abortControllerRef.current = null;
+      setIsProcessing(false);
     }
   };
 
-  const handleCancel = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-  };
-
-  const handleDownloadTrainingData = () => {
-    if (result?.data?.trainingData?.downloadUrl) {
-      window.open(result.data.trainingData.downloadUrl, '_blank');
-    }
-  };
-
-  const formatDuration = (ms: number) => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    
-    if (minutes > 0) {
-      return `${minutes}m ${remainingSeconds}s`;
-    }
-    return `${remainingSeconds}s`;
-  };
-
-  const getStatusIcon = () => {
-    if (isRunning) return <Loader2 className="h-4 w-4 animate-spin" />;
-    if (result?.success) return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-    if (statusMessage && !result?.success) return <AlertCircle className="h-4 w-4 text-red-500" />;
-    return <Play className="h-4 w-4" />;
+  const getOverallProgress = () => {
+    if (steps.length === 0) return 0;
+    const completed = steps.filter(step => step.status === 'completed').length;
+    return Math.round((completed / steps.length) * 100);
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-          Automated Fine-Tuning Pipeline
-        </h1>
-        <p className="text-gray-600">
-          Complete end-to-end automation: Extract → Analyze → Generate → Export for Fine-Tuning
-        </p>
-      </div>
-
-      {/* Configuration Form */}
-      <div className="bg-white rounded-lg border shadow-sm p-6 space-y-4">
-        <h2 className="text-xl font-semibold mb-4">Pipeline Configuration</h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Basic Settings */}
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="username">Creator Username</Label>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Play className="h-5 w-5" />
+            Automated Content Pipeline
+          </CardTitle>
+          <CardDescription>
+            Transform social media profiles into fine-tuning datasets with a single click
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Configuration */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
-                type="text"
+                placeholder="Enter TikTok or Instagram username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username (without @)"
-                disabled={isRunning}
+                disabled={isProcessing}
               />
             </div>
-
-            <div>
+            
+            <div className="space-y-2">
               <Label htmlFor="platform">Platform</Label>
-              <Select value={platform} onValueChange={setPlatform} disabled={isRunning}>
+              <Select value={platform} onValueChange={(value: 'tiktok' | 'instagram') => setPlatform(value)} disabled={isProcessing}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -257,13 +506,9 @@ export default function AutomatedPipeline() {
               </Select>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="videoCount">Video Count</Label>
-              <Select 
-                value={videoCount.toString()} 
-                onValueChange={(value) => setVideoCount(parseInt(value))}
-                disabled={isRunning}
-              >
+              <Select value={videoCount.toString()} onValueChange={(value) => setVideoCount(parseInt(value))} disabled={isProcessing}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -271,257 +516,215 @@ export default function AutomatedPipeline() {
                   <SelectItem value="20">20 videos</SelectItem>
                   <SelectItem value="40">40 videos (recommended)</SelectItem>
                   <SelectItem value="60">60 videos</SelectItem>
+                  <SelectItem value="80">80 videos</SelectItem>
                   <SelectItem value="100">100 videos</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-          </div>
 
-          {/* Advanced Settings */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Processing Mode</Label>
-                <p className="text-sm text-gray-500">
-                  {fastMode ? "Fast transcription only" : "Full marketing analysis"}
-                </p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Zap className="h-4 w-4 text-yellow-500" />
-                <Switch
-                  checked={fastMode}
-                  onCheckedChange={setFastMode}
-                  disabled={isRunning}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Generate Synthetic Data</Label>
-                <p className="text-sm text-gray-500">
-                  Create additional training examples
-                </p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Sparkles className="h-4 w-4 text-purple-500" />
-                <Switch
-                  checked={generateSyntheticData}
-                  onCheckedChange={setGenerateSyntheticData}
-                  disabled={isRunning || fastMode}
-                />
-              </div>
-            </div>
-
-            {generateSyntheticData && !fastMode && (
-              <div>
-                <Label htmlFor="syntheticCount">Synthetic Scripts</Label>
-                <Select 
-                  value={syntheticScriptCount.toString()} 
-                  onValueChange={(value) => setSyntheticScriptCount(parseInt(value))}
-                  disabled={isRunning}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="5">5 scripts</SelectItem>
-                    <SelectItem value="10">10 scripts</SelectItem>
-                    <SelectItem value="15">15 scripts</SelectItem>
-                    <SelectItem value="20">20 scripts</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="exportFormat">Export Format</Label>
-              <Select 
-                value={exportFormat} 
-                onValueChange={(value: 'jsonl' | 'json') => setExportFormat(value)}
-                disabled={isRunning}
-              >
+              <Select value={exportFormat} onValueChange={(value: 'jsonl' | 'json') => setExportFormat(value)} disabled={isProcessing}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="jsonl">JSONL (Gemini Fine-tuning)</SelectItem>
+                  <SelectItem value="jsonl">JSONL (OpenAI Fine-tuning)</SelectItem>
                   <SelectItem value="json">JSON (General Purpose)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-3 pt-4">
-          <Button
-            onClick={handleRunPipeline}
-            disabled={isRunning || !username.trim()}
-            className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-            size="lg"
-          >
-            {getStatusIcon()}
-            {isRunning ? "Running Pipeline..." : "Start Automated Pipeline"}
-          </Button>
-          
-          {isRunning && (
-            <Button
-              onClick={handleCancel}
-              variant="outline"
-              size="lg"
-            >
-              Cancel
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Progress Display */}
-      {isRunning && (
-        <div className="bg-white rounded-lg border shadow-sm p-6">
+          {/* Options */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Pipeline Progress</h3>
-              <span className="text-sm text-gray-500">{progress}%</span>
-            </div>
-            
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-gradient-to-r from-purple-600 to-pink-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${progress}%` }}
+              <div className="space-y-1">
+                <Label htmlFor="fastMode">Fast Mode</Label>
+                <p className="text-sm text-gray-600">
+                  {fastMode ? 'Quick transcription only (5-10 min)' : 'Full marketing analysis (25-30 min)'}
+                </p>
+              </div>
+              <Switch
+                id="fastMode"
+                checked={fastMode}
+                onCheckedChange={setFastMode}
+                disabled={isProcessing}
               />
             </div>
-            
-            <p className="text-sm text-gray-600 flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {currentStage}
-            </p>
-          </div>
-        </div>
-      )}
 
-      {/* Status Message */}
-      {statusMessage && (
-        <div className={`rounded-lg border p-4 ${
-          result?.success 
-            ? 'bg-green-50 border-green-200 text-green-800' 
-            : 'bg-red-50 border-red-200 text-red-800'
-        }`}>
-          <div className="flex items-center gap-2">
-            {result?.success ? (
-              <CheckCircle2 className="h-5 w-5 text-green-500" />
-            ) : (
-              <AlertCircle className="h-5 w-5 text-red-500" />
+            {!fastMode && (
+              <>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label htmlFor="generateSyntheticData">Generate Synthetic Data</Label>
+                    <p className="text-sm text-gray-600">
+                      Create AI-generated training scripts for better fine-tuning results
+                    </p>
+                  </div>
+                  <Switch
+                    id="generateSyntheticData"
+                    checked={generateSyntheticData}
+                    onCheckedChange={setGenerateSyntheticData}
+                    disabled={isProcessing}
+                  />
+                </div>
+
+                {generateSyntheticData && (
+                  <div className="space-y-2">
+                    <Label htmlFor="syntheticScriptCount">Synthetic Script Count</Label>
+                    <Select 
+                      value={syntheticScriptCount.toString()} 
+                      onValueChange={(value) => setSyntheticScriptCount(parseInt(value))} 
+                      disabled={isProcessing}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5 scripts</SelectItem>
+                        <SelectItem value="10">10 scripts (recommended)</SelectItem>
+                        <SelectItem value="15">15 scripts</SelectItem>
+                        <SelectItem value="20">20 scripts</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
             )}
-            <p className="font-medium">{statusMessage}</p>
           </div>
-        </div>
+
+          <Button 
+            onClick={startPipeline} 
+            disabled={isProcessing || !username.trim()}
+            className="w-full"
+            size="lg"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Processing Pipeline...
+              </>
+            ) : (
+              <>
+                <Play className="mr-2 h-4 w-4" />
+                Start Automated Pipeline
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Progress Display */}
+      {(isProcessing || steps.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>Pipeline Progress</span>
+              {isProcessing && (
+                <Badge variant="outline" className="animate-pulse">
+                  Processing...
+                </Badge>
+              )}
+            </CardTitle>
+            {steps.length > 0 && (
+              <div className="space-y-2">
+                <Progress value={getOverallProgress()} className="w-full" />
+                <p className="text-sm text-gray-600">
+                  {getOverallProgress()}% complete ({steps.filter(s => s.status === 'completed').length} of {steps.length} steps)
+                </p>
+              </div>
+            )}
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {steps.map((step, index) => (
+                <div key={index} className={`border rounded-lg p-4 ${getStepColor(step.status)}`}>
+                  <div className="flex items-start gap-3">
+                    {getStepIcon(step.status)}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-medium text-sm">{step.message}</h3>
+                        <span className="text-xs text-gray-500">
+                          {new Date(step.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      {renderStepDetails(step)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Results Display */}
-      {result?.success && result.data && (
-        <div className="bg-white rounded-lg border shadow-sm p-6 space-y-6">
-          <h3 className="text-xl font-semibold">Pipeline Results</h3>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Extraction Results */}
-            <div className="bg-blue-50 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <FileText className="h-5 w-5 text-blue-600" />
-                <h4 className="font-semibold text-blue-900">Videos Extracted</h4>
+      {/* Error Display */}
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-700">
+              <AlertCircle className="h-5 w-5" />
+              Pipeline Failed
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-red-700">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Results Summary */}
+      {result && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-green-700">
+              <CheckCircle2 className="h-5 w-5" />
+              Pipeline Completed Successfully
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="text-center p-4 bg-blue-50 rounded-lg">
+                <Video className="h-8 w-8 mx-auto mb-2 text-blue-600" />
+                <div className="text-2xl font-bold text-blue-700">{result.transcription?.successful || 0}</div>
+                <div className="text-sm text-blue-600">Videos Processed</div>
               </div>
-              <p className="text-2xl font-bold text-blue-700">
-                {result.data.extraction.totalVideos}
-              </p>
-              <p className="text-sm text-blue-600">
-                From {result.data.pipeline.platform}: @{result.data.pipeline.username}
-              </p>
-            </div>
-
-            {/* Transcription Results */}
-            <div className="bg-green-50 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-                <h4 className="font-semibold text-green-900">Videos Analyzed</h4>
+              
+              <div className="text-center p-4 bg-green-50 rounded-lg">
+                <FileText className="h-8 w-8 mx-auto mb-2 text-green-600" />
+                <div className="text-2xl font-bold text-green-700">{result.templates?.generated || 0}</div>
+                <div className="text-sm text-green-600">Templates Generated</div>
               </div>
-              <p className="text-2xl font-bold text-green-700">
-                {result.data.transcription.successful}
-              </p>
-              <p className="text-sm text-green-600">
-                Processed in {formatDuration(result.data.transcription.processingTime)}
-              </p>
-            </div>
-
-            {/* Template Results */}
-            <div className="bg-purple-50 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles className="h-5 w-5 text-purple-600" />
-                <h4 className="font-semibold text-purple-900">Templates</h4>
+              
+              <div className="text-center p-4 bg-purple-50 rounded-lg">
+                <Sparkles className="h-8 w-8 mx-auto mb-2 text-purple-600" />
+                <div className="text-2xl font-bold text-purple-700">{result.synthetic?.generated || 0}</div>
+                <div className="text-sm text-purple-600">Synthetic Scripts</div>
               </div>
-              <p className="text-2xl font-bold text-purple-700">
-                {result.data.templates.generated}
-              </p>
-              <p className="text-sm text-purple-600">
-                Marketing templates generated
-              </p>
-            </div>
-
-            {/* Training Data Results */}
-            <div className="bg-orange-50 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Download className="h-5 w-5 text-orange-600" />
-                <h4 className="font-semibold text-orange-900">Training Examples</h4>
+              
+              <div className="text-center p-4 bg-orange-50 rounded-lg">
+                <Database className="h-8 w-8 mx-auto mb-2 text-orange-600" />
+                <div className="text-2xl font-bold text-orange-700">{result.trainingData?.totalExamples || 0}</div>
+                <div className="text-sm text-orange-600">Training Examples</div>
               </div>
-              <p className="text-2xl font-bold text-orange-700">
-                {result.data.trainingData.totalExamples}
-              </p>
-              <p className="text-sm text-orange-600">
-                Ready for fine-tuning ({result.data.trainingData.format.toUpperCase()})
-              </p>
             </div>
-          </div>
 
-          {/* Synthetic Data Results */}
-          {result.data.synthetic.generated > 0 && (
-            <div className="bg-pink-50 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles className="h-5 w-5 text-pink-600" />
-                <h4 className="font-semibold text-pink-900">Synthetic Scripts Generated</h4>
+            {result.trainingData?.downloadUrl && (
+              <div className="mt-6 pt-4 border-t">
+                <Button
+                  onClick={() => window.open(result.trainingData.downloadUrl, '_blank')}
+                  className="w-full"
+                  size="lg"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download Training Dataset ({result.trainingData.format.toUpperCase()})
+                </Button>
               </div>
-              <p className="text-2xl font-bold text-pink-700">
-                {result.data.synthetic.generated}
-              </p>
-              <p className="text-sm text-pink-600">
-                Additional training examples created
-              </p>
-            </div>
-          )}
-
-          {/* Download Button */}
-          {result.data.trainingData.downloadUrl && (
-            <div className="pt-4 border-t">
-              <Button
-                onClick={handleDownloadTrainingData}
-                className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
-                size="lg"
-              >
-                <Download className="h-5 w-5 mr-2" />
-                Download Training Dataset ({result.data.trainingData.format.toUpperCase()})
-              </Button>
-            </div>
-          )}
-
-          {/* Pipeline Summary */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-semibold mb-2">Pipeline Summary</h4>
-            <div className="text-sm text-gray-600 space-y-1">
-              <p><strong>Processing Mode:</strong> {result.data.pipeline.processingMode}</p>
-              <p><strong>Completed:</strong> {new Date(result.data.pipeline.completedAt).toLocaleString()}</p>
-              <p><strong>Success Rate:</strong> {Math.round((result.data.transcription.successful / result.data.transcription.totalProcessed) * 100)}%</p>
-            </div>
-          </div>
-        </div>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

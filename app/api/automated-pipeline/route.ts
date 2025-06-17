@@ -16,14 +16,53 @@ interface AutomatedPipelineRequest {
   };
 }
 
-interface PipelineProgress {
-  stage: 'extraction' | 'transcription' | 'template_generation' | 'synthetic_generation' | 'export' | 'complete';
+interface PipelineStep {
+  step: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
   message: string;
-  progress: number; // 0-100
-  data?: any;
+  details?: any;
+  timestamp: string;
+}
+
+// Server-Sent Events for real-time updates
+class PipelineProgressTracker {
+  private steps: PipelineStep[] = [];
+
+  addStep(step: string, status: 'pending' | 'running' | 'completed' | 'failed', message: string, details?: any) {
+    const stepData: PipelineStep = {
+      step,
+      status,
+      message,
+      details,
+      timestamp: new Date().toISOString()
+    };
+    
+    this.steps.push(stepData);
+    console.log(`[Pipeline Step] ${step}: ${status} - ${message}`);
+    
+    if (details) {
+      console.log(`[Pipeline Details]`, details);
+    }
+  }
+
+  getSteps() {
+    return this.steps;
+  }
+
+  updateLastStep(status: 'pending' | 'running' | 'completed' | 'failed', message: string, details?: any) {
+    if (this.steps.length > 0) {
+      const lastStep = this.steps[this.steps.length - 1];
+      lastStep.status = status;
+      lastStep.message = message;
+      if (details) lastStep.details = details;
+      lastStep.timestamp = new Date().toISOString();
+    }
+  }
 }
 
 export async function POST(req: NextRequest) {
+  const tracker = new PipelineProgressTracker();
+  
   try {
     const body: AutomatedPipelineRequest = await req.json();
     const { 
@@ -34,15 +73,14 @@ export async function POST(req: NextRequest) {
     } = body;
 
     const {
-      fastMode = false, // Default to marketing analysis for fine-tuning
+      fastMode = false,
       generateSyntheticData = true,
       syntheticScriptCount = 10,
       exportFormat = 'jsonl',
       includeMetadata = true
     } = options;
 
-    console.log(`[AutomatedPipeline] Starting automated pipeline for ${platform}:${username}`);
-    console.log(`[AutomatedPipeline] Configuration:`, {
+    tracker.addStep('initialization', 'completed', `Starting automated pipeline for ${platform}:${username}`, {
       videoCount,
       fastMode,
       generateSyntheticData,
@@ -51,7 +89,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Step 1: Extract Videos
-    console.log(`[AutomatedPipeline] Step 1: Extracting top ${videoCount} videos from ${platform}:${username}`);
+    tracker.addStep('video_extraction', 'running', `Extracting top ${videoCount} videos from ${platform}:${username}`);
     
     const extractionResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/process-creator`, {
       method: 'POST',
@@ -65,19 +103,35 @@ export async function POST(req: NextRequest) {
 
     if (!extractionResponse.ok) {
       const error = await extractionResponse.json();
+      tracker.updateLastStep('failed', `Video extraction failed: ${error.error || 'Unknown error'}`);
       throw new Error(`Video extraction failed: ${error.error || 'Unknown error'}`);
     }
 
     const extractionResult = await extractionResponse.json();
     
     if (!extractionResult.success || !extractionResult.extractedVideos?.length) {
+      tracker.updateLastStep('failed', 'No videos extracted successfully');
       throw new Error('No videos extracted successfully');
     }
 
-    console.log(`[AutomatedPipeline] Extracted ${extractionResult.extractedVideos.length} videos`);
+    // Show extracted video URLs
+    const videoUrls = extractionResult.extractedVideos.map((video: any, index: number) => ({
+      index: index + 1,
+      id: video.id,
+      url: video.video_url,
+      platform: video.platform,
+      viewCount: video.viewCount || 0,
+      quality: video.quality
+    }));
 
-    // Step 2: Transcribe and Analyze Videos
-    console.log(`[AutomatedPipeline] Step 2: Transcribing and analyzing ${extractionResult.extractedVideos.length} videos`);
+    tracker.updateLastStep('completed', `Successfully extracted ${extractionResult.extractedVideos.length} video URLs`, {
+      totalVideos: extractionResult.extractedVideos.length,
+      videoUrls: videoUrls,
+      googleDrive: extractionResult.googleDrive
+    });
+
+    // Step 2: Download and Transcribe Videos
+    tracker.addStep('video_processing', 'running', `Downloading and ${fastMode ? 'transcribing' : 'analyzing'} ${extractionResult.extractedVideos.length} videos`);
     
     const transcriptionRequest = {
       videos: extractionResult.extractedVideos
@@ -106,12 +160,14 @@ export async function POST(req: NextRequest) {
 
     if (!transcriptionResponse.ok) {
       const error = await transcriptionResponse.json();
+      tracker.updateLastStep('failed', `Transcription failed: ${error.error || 'Unknown error'}`);
       throw new Error(`Transcription failed: ${error.error || 'Unknown error'}`);
     }
 
     const transcriptionResult = await transcriptionResponse.json();
     
     if (!transcriptionResult.success || !transcriptionResult.data?.transcriptionResults?.length) {
+      tracker.updateLastStep('failed', 'No videos transcribed successfully');
       throw new Error('No videos transcribed successfully');
     }
 
@@ -119,26 +175,55 @@ export async function POST(req: NextRequest) {
       (result: any) => result.success && result.marketingSegments
     );
 
-    console.log(`[AutomatedPipeline] Successfully analyzed ${successfulTranscriptions.length} videos`);
-    
     // Log success rate for debugging
     const totalAttempted = transcriptionResult.data.transcriptionResults.length;
     const successRate = Math.round((successfulTranscriptions.length / totalAttempted) * 100);
-    console.log(`[AutomatedPipeline] Transcription success rate: ${successRate}% (${successfulTranscriptions.length}/${totalAttempted})`);
     
     // Continue even if success rate is low, but warn if too low
     if (successfulTranscriptions.length === 0) {
+      tracker.updateLastStep('failed', 'No videos were successfully transcribed and analyzed');
       throw new Error('No videos were successfully transcribed and analyzed');
     }
     
+    // Show detailed transcription results
+    const transcriptionDetails = {
+      successRate: `${successRate}% (${successfulTranscriptions.length}/${totalAttempted})`,
+      processingTime: transcriptionResult.data.summary.processingTime,
+      googleDrive: transcriptionResult.data.googleDrive,
+      successful: successfulTranscriptions.map((result: any) => ({
+        videoId: result.videoId,
+        platform: result.platform,
+        transcription: result.transcription.substring(0, 200) + '...',
+        marketingSegments: result.marketingSegments,
+        processingTime: result.processingTime
+      })),
+      failed: transcriptionResult.data.transcriptionResults
+        .filter((result: any) => !result.success)
+        .map((result: any) => ({
+          videoId: result.videoId,
+          error: result.error
+        }))
+    };
+
     if (successRate < 50) {
-      console.warn(`[AutomatedPipeline] Low success rate (${successRate}%) - many videos may have expired URLs or parsing issues`);
+      tracker.updateLastStep('completed', `⚠️ Low success rate: ${successRate}% - many videos may have expired URLs`, transcriptionDetails);
+    } else {
+      tracker.updateLastStep('completed', `Successfully processed ${successfulTranscriptions.length} videos (${successRate}% success rate)`, transcriptionDetails);
     }
 
-    // Step 3: Generate Templates (if we have marketing analysis)
+    // Step 3: Google Drive Storage
+    if (transcriptionResult.data.googleDrive) {
+      tracker.addStep('drive_storage', 'completed', `Google Drive folder created: ${transcriptionResult.data.googleDrive.folderName}`, {
+        folderName: transcriptionResult.data.googleDrive.folderName,
+        folderUrl: transcriptionResult.data.googleDrive.folderUrl,
+        files: transcriptionResult.data.googleDrive.files || []
+      });
+    }
+
+    // Step 4: Generate Templates (if we have marketing analysis)
     let templates: any[] = [];
     if (!fastMode && successfulTranscriptions.length > 0) {
-      console.log(`[AutomatedPipeline] Step 3: Generating templates from successful scripts`);
+      tracker.addStep('template_generation', 'running', `Generating templates from ${successfulTranscriptions.length} successful scripts`);
       
       try {
         const templateResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/generate-templates`, {
@@ -156,18 +241,28 @@ export async function POST(req: NextRequest) {
         if (templateResponse.ok) {
           const templateResult = await templateResponse.json();
           templates = templateResult.data?.allTemplates || [];
-          console.log(`[AutomatedPipeline] Generated ${templates.length} templates`);
+          
+          tracker.updateLastStep('completed', `Generated ${templates.length} content templates`, {
+            templates: templates.map((template: any, index: number) => ({
+              index: index + 1,
+              hook: template.hook.substring(0, 100) + '...',
+              bridge: template.bridge.substring(0, 100) + '...',
+              nugget: template.nugget.substring(0, 100) + '...',
+              wta: template.wta.substring(0, 100) + '...'
+            }))
+          });
+        } else {
+          tracker.updateLastStep('failed', 'Template generation failed');
         }
       } catch (error) {
-        console.warn(`[AutomatedPipeline] Template generation failed:`, error);
-        // Continue without templates
+        tracker.updateLastStep('failed', `Template generation error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
-    // Step 4: Generate Synthetic Scripts (if requested and we have marketing analysis)
+    // Step 5: Generate Synthetic Scripts (if requested and we have marketing analysis)
     let syntheticScripts: Array<{topic: string, script: MarketingSegments}> = [];
     if (generateSyntheticData && !fastMode && templates.length > 0) {
-      console.log(`[AutomatedPipeline] Step 4: Generating ${syntheticScriptCount} synthetic scripts`);
+      tracker.addStep('synthetic_generation', 'running', `Generating ${syntheticScriptCount} synthetic training scripts`);
       
       const syntheticTopics = [
         'productivity tips for entrepreneurs',
@@ -182,6 +277,9 @@ export async function POST(req: NextRequest) {
         'time management techniques'
       ].slice(0, syntheticScriptCount);
 
+      let successfulSynthetic = 0;
+      const syntheticDetails: any[] = [];
+
       for (const topic of syntheticTopics) {
         try {
           const syntheticResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/generate-templates`, {
@@ -189,7 +287,7 @@ export async function POST(req: NextRequest) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               syntheticTopic: topic,
-              templates: templates.slice(0, 3) // Use top 3 templates for variety
+              templates: templates.slice(0, 3)
             })
           });
 
@@ -200,21 +298,48 @@ export async function POST(req: NextRequest) {
                 topic,
                 script: syntheticResult.data.script
               });
+              
+              successfulSynthetic++;
+              syntheticDetails.push({
+                topic,
+                hook: syntheticResult.data.script.Hook.substring(0, 100) + '...',
+                status: 'success'
+              });
+            } else {
+              syntheticDetails.push({
+                topic,
+                status: 'failed',
+                error: 'No script generated'
+              });
             }
+          } else {
+            syntheticDetails.push({
+              topic,
+              status: 'failed',
+              error: 'API request failed'
+            });
           }
           
           // Small delay between synthetic generations
           await new Promise(resolve => setTimeout(resolve, 2000));
         } catch (error) {
-          console.warn(`[AutomatedPipeline] Failed to generate synthetic script for "${topic}":`, error);
+          syntheticDetails.push({
+            topic,
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
         }
       }
       
-      console.log(`[AutomatedPipeline] Generated ${syntheticScripts.length} synthetic scripts`);
+      tracker.updateLastStep('completed', `Generated ${successfulSynthetic}/${syntheticScriptCount} synthetic scripts`, {
+        successfulSynthetic,
+        totalAttempted: syntheticScriptCount,
+        details: syntheticDetails
+      });
     }
 
-    // Step 5: Export Training Data
-    console.log(`[AutomatedPipeline] Step 5: Exporting training dataset`);
+    // Step 6: Export Training Data
+    tracker.addStep('data_export', 'running', 'Preparing training dataset for fine-tuning');
     
     const exportOptions: ExportOptions = {
       includeMetadata,
@@ -238,16 +363,29 @@ export async function POST(req: NextRequest) {
 
     if (!exportResponse.ok) {
       const error = await exportResponse.json();
+      tracker.updateLastStep('failed', `Training data export failed: ${error.error || 'Unknown error'}`);
       throw new Error(`Training data export failed: ${error.error || 'Unknown error'}`);
     }
 
     const exportResult = await exportResponse.json();
     
-    console.log(`[AutomatedPipeline] Pipeline completed successfully`);
+    tracker.updateLastStep('completed', `Training dataset ready: ${exportResult.data?.dataset?.examples?.length || 0} examples in ${exportFormat.toUpperCase()} format`, {
+      totalExamples: exportResult.data?.dataset?.examples?.length || 0,
+      format: exportFormat,
+      downloadUrl: exportResult.data?.downloadUrl,
+      summary: exportResult.data?.dataset?.summary
+    });
 
-    // Return comprehensive results
+    // Final completion step
+    tracker.addStep('pipeline_complete', 'completed', 'Automated pipeline completed successfully!', {
+      totalSteps: tracker.getSteps().length,
+      completedAt: new Date().toISOString()
+    });
+
+    // Return comprehensive results with detailed steps
     return NextResponse.json({
       success: true,
+      steps: tracker.getSteps(),
       data: {
         pipeline: {
           username,
@@ -258,6 +396,7 @@ export async function POST(req: NextRequest) {
         },
         extraction: {
           totalVideos: extractionResult.extractedVideos.length,
+          videoUrls: videoUrls,
           googleDrive: extractionResult.googleDrive
         },
         transcription: {
@@ -265,7 +404,8 @@ export async function POST(req: NextRequest) {
           successful: transcriptionResult.data.summary.successful,
           failed: transcriptionResult.data.summary.failed,
           processingTime: transcriptionResult.data.summary.processingTime,
-          googleDrive: transcriptionResult.data.googleDrive
+          googleDrive: transcriptionResult.data.googleDrive,
+          results: successfulTranscriptions
         },
         templates: {
           generated: templates.length,
@@ -283,15 +423,20 @@ export async function POST(req: NextRequest) {
           metadata: exportResult.data?.dataset?.metadata
         }
       },
-      message: `Automated pipeline completed: ${successfulTranscriptions.length} videos analyzed, ${templates.length} templates generated, ${syntheticScripts.length} synthetic scripts created, ${exportResult.data?.dataset?.examples?.length || 0} training examples ready for fine-tuning`
+      message: `Pipeline completed: ${successfulTranscriptions.length} videos analyzed, ${templates.length} templates generated, ${syntheticScripts.length} synthetic scripts created, ${exportResult.data?.dataset?.examples?.length || 0} training examples ready`
     });
 
   } catch (error) {
     console.error('[AutomatedPipeline] Pipeline failed:', error);
     
+    // Add failure step
+    const tracker_copy = tracker;
+    tracker_copy.addStep('pipeline_failed', 'failed', error instanceof Error ? error.message : 'Unknown error occurred');
+    
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
+      steps: tracker_copy.getSteps(),
       stage: 'pipeline_error'
     }, { status: 500 });
   }
@@ -309,7 +454,8 @@ export async function GET() {
       'Synthetic script generation',
       'Training data export (JSONL/JSON)',
       'Google Drive integration',
-      'End-to-end automation'
+      'End-to-end automation',
+      'Real-time progress tracking'
     ],
     supportedPlatforms: ['tiktok', 'instagram'],
     processingModes: ['fast', 'marketing_analysis'],
